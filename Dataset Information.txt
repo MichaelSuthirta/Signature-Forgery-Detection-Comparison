@@ -1,1 +1,3 @@
 Dataset X_1_X - X_55_X source: CEDAR Dataset - https://www.kaggle.com/datasets/shreelakshmigp/cedardataset/data
+Dataset X_56_X - X_115_X (with duplicate signatures) source: handwritten signatures - https://www.kaggle.com/datasets/divyanshrai/handwritten-signatures?select=Dataset_Signature_Final
+Dataset X_116_X - X_153_X source: Real-Fake Signature Datasets - https://www.kaggle.com/datasets/emrahaydemr/realfake-signature-datasets
