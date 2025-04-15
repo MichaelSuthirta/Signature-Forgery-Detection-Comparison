@@ -43,9 +43,11 @@ print(dataset.classes)
 train_dataset, temp_dataset = train_test_split(dataset, train_size=0.8)
 validate_dataset, test_dataset = train_test_split(temp_dataset, test_size=0.5)
 
-train_data = DataLoader(train_dataset, batch_size=48, shuffle=True)
-valid_data = DataLoader(validate_dataset, batch_size=48, shuffle=False)
-test_data = DataLoader(test_dataset, batch_size=48, shuffle=False)
+batch = 48
+
+train_data_load= DataLoader(train_dataset, batch_size=batch, shuffle=True)
+valid_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False)
+test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False)
 
 # Creating the CNN class
 class cnn(nn.Module):
@@ -77,13 +79,12 @@ criterion = nn.BCELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 # Training loop
-total_steps = len(train_data)
+total_steps = len(train_data_load)
 
 for epoch in range(epoch_amt):
-    for i, (images, labels) in enumerate(train_data):
+    for i, (images, labels) in enumerate(train_data_load):
         # Move image and label to device
-        images = images.to(device)
-        labels = labels.to(device)
+        images, labels = images.to(device), labels.to(device)
 
         # Forward pass
         output = model(images)
@@ -93,3 +94,20 @@ for epoch in range(epoch_amt):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+# Training loop
+
+
+# Validation loop
+def validate_model():
+    loss_per_batch = []
+
+    model.eval()
+    with torch.no_grad():
+        for images, labels in valid_data_load:
+            images, labels = images.to(device), labels.to(device)
+            output = model(images)
+            loss = criterion(model, labels)
+            loss_per_batch.append(loss.item())
+    
+    return loss_per_batch
