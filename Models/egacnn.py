@@ -37,12 +37,25 @@ class square_padding:
         return pad(image, padding)
 
 # Transform the images to be used
-transform_format = transforms.Compose([square_padding(), transforms.Resize((144*144)), transforms.Grayscale(1), transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
+transform_format = transforms.Compose([square_padding(), transforms.Resize((144,144)), transforms.Grayscale(1), transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
 # transform_augment = transforms.RandomApply([transforms.RandomRotation(15), transforms.RandomVerticalFlip(), transforms.RandomHorizontalFlip()])
 # transform_augment_format = transforms.Compose([transform_augment, transform_format])
 
 # Dataset preparation
-dataset = datasets.ImageFolder('Datasets', transform = transform_format)
+# dataset = datasets.ImageFolder('Datasets', transform = transform_format)
+
+batch = 64
+
+train_dataset = datasets.ImageFolder('Datasets\Train', transform_format)
+print(train_dataset.classes)
+validate_dataset = datasets.ImageFolder('Datasets\Validate', transform_format)
+print(validate_dataset.classes)
+test_dataset = datasets.ImageFolder('Datasets\Test', transform_format)
+print(test_dataset.classes)
+
+train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True)
+validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False)
+test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False)
 
 # data_names = []
 
@@ -50,19 +63,7 @@ dataset = datasets.ImageFolder('Datasets', transform = transform_format)
 # for i in range(len(dataset)):
 #     data_names.append(os.path.basename(dataset.imgs[i][0])) # [0] means the file path, basename takes file name
 
-print(dataset.classes)
-
-# Split dataset into train, validation and test with the ratio of 8:1:1
-# train_dataset, temp_dataset = train_test_split(dataset, train_size=0.8)
-# validate_dataset, test_dataset = train_test_split(temp_dataset, test_size=0.5)
-
-batch = 64
-
-# train_data_load= DataLoader(train_dataset, batch_size=batch, shuffle=True)
-# valid_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False)
-# test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False)
-
-dataset_load = DataLoader(dataset, batch_size=batch, shuffle=True)
+# print(dataset.classes)
 
 # Creating the CNN class
 class cnn(nn.Module):
@@ -104,8 +105,9 @@ print("Training start. Device: {}".format(device))
 for epoch in range(epoch_amt):
     #Training
     train_loss = 0.0
-    correct_predict = 0
+    train_correct = 0
 
+    model.train()
     for i, (images, labels) in enumerate(train_data_load):
         # Move image and label to device
         images, labels = images.to(device), labels.to(device)
@@ -122,28 +124,44 @@ for epoch in range(epoch_amt):
 
         # Loss and accuracy
         _, result = torch.max(output, dim=1)
-        correct_predict += (result == labels).float().sum()
+        train_correct += (result == labels).float().sum()
         train_loss += loss.item()
 
-    accuracy = 100 * correct_predict / len(train_dataset)
+    train_accuracy = 100 * train_correct / len(train_dataset)
 
-    print("Training - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, accuracy, train_loss))
+    print("Training - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, train_accuracy, train_loss))
     train_loss = 0.0
-    
+
     # Validation
-    # valid_loss = 0.0
+    valid_loss = 0.0
+    valid_correct = 0
 
+    model.eval()
+    for i, (images, labels) in enumerate(validate_data_load):
+        images, labels = images.to(device), labels.to(device)
 
-# # Validation loop
-# def validate_model():
-#     loss_per_batch = []
+        output = model(images)
+        loss = criterion(output, labels)
 
-#     model.eval()
-#     with torch.no_grad():
-#         for images, labels in valid_data_load:
-#             images, labels = images.to(device), labels.to(device)
-#             output = model(images)
-#             loss = criterion(model, labels)
-#             loss_per_batch.append(loss.item())
-    
-#     return loss_per_batch
+        # Calculate loss and accuracy
+        _, validate_result = torch.max(output, dim=1)
+        valid_correct += (validate_result == labels).float().sum()
+
+        valid_loss += loss.item()
+
+    valid_accuracy = 100 * valid_correct / len(validate_dataset)
+    print("Validation - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, valid_accuracy, valid_loss))
+    valid_loss = 0.0
+
+# # Test loop
+# model.eval()
+
+# test_loss = 0.0
+# test_correct = 0
+
+# with torch.no_grad():
+#     for i, (images, labels) in enumerate(test_data_load):
+#         prediction = model(images)
+#         test_loss += criterion(prediction, labels).item()
+
+#         test_correct += (prediction.argmax(1) == labels)
