@@ -157,4 +157,9 @@ with torch.no_grad():
         prediction = model(images)
         test_loss += criterion(prediction, labels).item()
 
-        test_correct += (prediction.argmax(1) == labels)
+        test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
+
+test_loss /= batch
+test_accuracy = 100 * test_correct / len(test_dataset)
+
+print("Test - Accuracy: {},  Loss: {}".format(test_accuracy, test_loss))
