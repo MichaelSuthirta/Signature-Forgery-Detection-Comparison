@@ -1,3 +1,8 @@
 Dataset X_1_X - X_55_X source: CEDAR Dataset - https://www.kaggle.com/datasets/shreelakshmigp/cedardataset/data
 Dataset X_56_X - X_115_X (with duplicate signatures) source: handwritten signatures - https://www.kaggle.com/datasets/divyanshrai/handwritten-signatures?select=Dataset_Signature_Final
 Dataset X_116_X - X_153_X source: Real-Fake Signature Datasets - https://www.kaggle.com/datasets/emrahaydemr/realfake-signature-datasets
+
+Dataset is split with a roughly 8:1:1 ratio for train, validate and test, consisting of:
+Training set: 4,878 images, consisting of 2,439 real signatures and 2,439 fake signatures
+Validation set: 610 images, consisting of 305 real signatures and 305 fake signatures
+Test set: 609 images, consisting of 266 fake signatures and 343 real signatures
