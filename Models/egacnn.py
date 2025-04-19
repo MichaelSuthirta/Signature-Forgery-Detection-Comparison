@@ -82,6 +82,33 @@ class cnn(nn.Module):
         data = self.fc_3(data)
         return data
 
+# Early stopping
+class EarlyStopping:
+    def __init__(self, patience = 3, delta = 1):
+        self.patience = patience
+        self.delta = delta
+        self.best_score = None
+        self.early_stop = False
+        self.counter = 0
+        self.best_model_state = None
+    
+    def __call__(self, val_loss, model):
+        score = -val_loss
+        if self.best_score == None:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+            self.counter = 0
+
+    def load_best_model(self, model):
+        model.load_state_dict(self.best_model_state)
+
 epoch_amt = 100
 learning_rate = 0.001
 
@@ -144,6 +171,14 @@ for epoch in range(epoch_amt):
 
     valid_accuracy = 100 * valid_correct / len(validate_dataset)
     print("Validation - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, valid_accuracy, valid_loss))
+
+    #Stop the training early
+    early_stopping = EarlyStopping()
+    early_stopping(valid_loss, model)
+    if early_stopping.early_stop:
+        print("Training stopped.")
+        break
+
     valid_loss = 0.0
 
 # Test loop
