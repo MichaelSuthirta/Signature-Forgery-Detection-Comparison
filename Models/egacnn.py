@@ -16,13 +16,6 @@ import matplotlib.pyplot as plt
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# print(device)
-# print("torch.cuda.is_available():", torch.cuda.is_available())
-# print("torch.version.cuda       :", torch.version.cuda)
-# print("torch.cuda.device_count():", torch.cuda.device_count())
-# print(torch.__version__)
-# print(torch.version.cuda)
-
 # Create function to pad image (for image size)
 class square_padding:
     def __call__(self, image):
@@ -153,15 +146,15 @@ for epoch in range(epoch_amt):
     print("Validation - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, valid_accuracy, valid_loss))
     valid_loss = 0.0
 
-# # Test loop
-# model.eval()
+# Test loop
+model.eval()
 
-# test_loss = 0.0
-# test_correct = 0
+test_loss = 0.0
+test_correct = 0
 
-# with torch.no_grad():
-#     for i, (images, labels) in enumerate(test_data_load):
-#         prediction = model(images)
-#         test_loss += criterion(prediction, labels).item()
+with torch.no_grad():
+    for i, (images, labels) in enumerate(test_data_load):
+        prediction = model(images)
+        test_loss += criterion(prediction, labels).item()
 
-#         test_correct += (prediction.argmax(1) == labels)
+        test_correct += (prediction.argmax(1) == labels)
