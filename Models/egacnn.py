@@ -31,20 +31,24 @@ class square_padding:
 
 # Transform the images to be used
 transform_format = transforms.Compose([square_padding(), transforms.Resize((144,144)), transforms.Grayscale(1), transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
-# transform_augment = transforms.RandomApply([transforms.RandomRotation(15), transforms.RandomVerticalFlip(), transforms.RandomHorizontalFlip()])
-# transform_augment_format = transforms.Compose([transform_augment, transform_format])
+# transform_augment = transforms.RandomChoice([transforms.RandomRotation((5)), transforms.RandomHorizontalFlip()])
+transform_multi_augment = transforms.RandomOrder([transforms.RandomRotation(5), transforms.RandomHorizontalFlip(), transforms.RandomPerspective(), transforms.ColorJitter()])
+
+transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.3]), transform_format])
 
 # Dataset preparation
 # dataset = datasets.ImageFolder('Datasets', transform = transform_format)
 
 batch = 64
 
-train_dataset = datasets.ImageFolder('Datasets\Train', transform_format)
-print(train_dataset.classes)
+train_dataset = datasets.ImageFolder('Datasets\Train', transform_train_format)
+print("Train dataset processed. Classes = {}".format(train_dataset.classes))
+
 validate_dataset = datasets.ImageFolder('Datasets\Validate', transform_format)
-print(validate_dataset.classes)
+print("Validation dataset processed. Classes = {}".format(validate_dataset.classes))
+
 test_dataset = datasets.ImageFolder('Datasets\Test', transform_format)
-print(test_dataset.classes)
+print("Test dataset processed. Classes = {}".format(test_dataset.classes))
 
 train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True)
 validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False)
@@ -63,28 +67,35 @@ class cnn(nn.Module):
     def __init__(self):
         super(cnn, self).__init__()
         self.conv_layer_1 = nn.Conv2d(1,8,3)
-        self.conv_layer_2 = nn.Conv2d(8,16,3)
+        self.conv_layer_2 = nn.Conv2d(8,32,3)
+        self.conv_layer_3 = nn.Conv2d(32,64,3)
+        self.conv_layer_4 = nn.Conv2d(64,128,3)
         self.pool = nn.MaxPool2d(2,2)
-        self.fc_1 = nn.Linear(16*34*34, 128)
-        self.fc_2 = nn.Linear(128, 64)
-        self.fc_3 = nn.Linear(64,2)
-        self.dropout_1 = nn.Dropout(0.25)
-        self.dropout_2 = nn.Dropout(0.5)
+        self.fc_1 = nn.Linear(128*7*7,256)
+        self.fc_2 = nn.Linear(256,64)
+        self.fc_3 = nn.Linear(64,16)
+        self.fc_4 = nn.Linear(16,2)
+        self.dropout_1 = nn.Dropout(0.2)
+        self.dropout_2 = nn.Dropout(0.35)
     
     def forward(self, data):
         data = self.pool(nn.functional.relu(self.conv_layer_1(data)))
         data = self.pool(nn.functional.relu(self.conv_layer_2(data)))
+        data = self.pool(nn.functional.relu(self.conv_layer_3(data)))
+        data = self.pool(nn.functional.relu(self.conv_layer_4(data)))
         data = torch.flatten(data, 1)
         data = nn.functional.relu(self.fc_1(data))
         data = self.dropout_1(data)
         data = nn.functional.relu(self.fc_2(data))
         data = self.dropout_2(data)
-        data = self.fc_3(data)
+        data = nn.functional.relu(self.fc_3(data))
+        data = self.dropout_2(data)
+        data = self.fc_4(data)
         return data
 
 # Early stopping
 class EarlyStopping:
-    def __init__(self, patience = 3, delta = 1):
+    def __init__(self, patience = 5, delta = 0.001):
         self.patience = patience
         self.delta = delta
         self.best_score = None
@@ -117,9 +128,22 @@ model = cnn().to(device)
 
 # Loss function and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.001)
 
 print("Training start. Device: {}".format(device))
+
+early_stopping = EarlyStopping()
+
+# Train and validation loss and accuracy arrays
+train_loss_list = []
+valid_loss_list = []
+train_acc_list = []
+valid_acc_list = []
+
+train_batch_acc = []
+train_batch_loss = []
+valid_batch_acc = []
+valid_batch_loss = []
 
 # Training and validation loop
 for epoch in range(epoch_amt):
@@ -146,10 +170,17 @@ for epoch in range(epoch_amt):
         _, result = torch.max(output, dim=1)
         train_correct += (result == labels).float().sum()
         train_loss += loss.item()
+        train_batch_loss.append(loss.item())
+        train_batch_acc.append((result == labels).float().sum())
 
     train_accuracy = 100 * train_correct / len(train_dataset)
+    train_loss_avg = train_loss/len(train_data_load)
 
-    print("Training - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, train_accuracy, train_loss))
+    print(f"Training - Epoch {epoch}, Accuracy: {train_accuracy:.5f},  Loss: {train_loss_avg:.5f}")
+
+    train_acc_list.append(train_accuracy)
+    train_loss_list.append(train_loss_avg)
+
     train_loss = 0.0
 
     # Validation
@@ -157,23 +188,30 @@ for epoch in range(epoch_amt):
     valid_correct = 0
 
     model.eval()
-    for i, (images, labels) in enumerate(validate_data_load):
-        images, labels = images.to(device), labels.to(device)
+    with torch.no_grad():
+        for i, (images, labels) in enumerate(validate_data_load):
+            images, labels = images.to(device), labels.to(device)
 
-        output = model(images)
-        loss = criterion(output, labels)
+            output = model(images)
+            loss = criterion(output, labels)
 
-        # Calculate loss and accuracy
-        _, validate_result = torch.max(output, dim=1)
-        valid_correct += (validate_result == labels).float().sum()
+            # Calculate loss and accuracy
+            _, validate_result = torch.max(output, dim=1)
+            valid_correct += (validate_result == labels).float().sum()
 
-        valid_loss += loss.item()
+            valid_loss += loss.item()
 
+            valid_batch_loss.append(loss.item())
+            valid_batch_acc.append((validate_result == labels).float().sum())
+
+    valid_loss_avg = valid_loss/len(validate_data_load)
     valid_accuracy = 100 * valid_correct / len(validate_dataset)
-    print("Validation - Epoch {}, Accuracy: {},  Loss: {}".format(epoch, valid_accuracy, valid_loss))
+    print(f"Validation - Epoch {epoch}, Accuracy: {valid_accuracy:.5f},  Loss: {valid_loss_avg:.5f}")
+
+    valid_acc_list.append(valid_accuracy)
+    valid_loss_list.append(valid_loss_avg)
 
     #Stop the training early
-    early_stopping = EarlyStopping()
     early_stopping(valid_loss, model)
     if early_stopping.early_stop:
         print("Training stopped.")
@@ -189,6 +227,7 @@ test_correct = 0
 
 with torch.no_grad():
     for i, (images, labels) in enumerate(test_data_load):
+        images, labels = images.to(device), labels.to(device)
         prediction = model(images)
         test_loss += criterion(prediction, labels).item()
 
@@ -198,3 +237,34 @@ test_loss /= batch
 test_accuracy = 100 * test_correct / len(test_dataset)
 
 print("Test - Accuracy: {},  Loss: {}".format(test_accuracy, test_loss))
+
+# Make train/validation graph
+train_acc_list = torch.tensor(train_acc_list, device='cuda').cpu().numpy()
+train_loss_list = torch.tensor(train_loss_list, device='cuda').cpu().numpy()
+valid_acc_list = torch.tensor(valid_acc_list, device='cuda').cpu().numpy()
+valid_loss_list = torch.tensor(valid_loss_list, device='cuda').cpu().numpy()
+
+train_batch_loss= torch.tensor(train_batch_loss, device='cuda').cpu().numpy()
+train_batch_acc = torch.tensor(train_batch_acc, device='cuda').cpu().numpy()
+valid_batch_loss= torch.tensor(valid_batch_loss, device='cuda').cpu().numpy()
+valid_batch_acc = torch.tensor(valid_batch_acc, device='cuda').cpu().numpy()
+
+plt.plot(train_acc_list, label = "Train accuracy")
+plt.plot(valid_acc_list, label = "Validation accuracy")
+plt.legend()
+plt.show()
+
+plt.plot(train_batch_acc, label = "Train accuracy within all batches")
+plt.plot(valid_batch_acc, label = "Validation accuracy within all batches")
+plt.legend()
+plt.show()
+
+plt.plot(train_loss_list, label = "Train loss")
+plt.plot(valid_loss_list, label = "Validation loss")
+plt.legend()
+plt.show()
+
+plt.plot(train_batch_loss, label = "Train loss within all batches")
+plt.plot(valid_batch_loss, label = "Validation loss within all batches")
+plt.legend()
+plt.show()
