@@ -28,21 +28,18 @@ class square_padding:
         return pad(image, padding)
     
 if __name__ == "__main__":
-    # Create function to pad image (for image size)
 
     # Transform the images to be used
     transform_format = transforms.Compose([square_padding(), transforms.Resize((224,224)), transforms.Grayscale(3), transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
-    # transform_augment = transforms.RandomChoice([transforms.RandomRotation((5)), transforms.RandomHorizontalFlip()])
-    # transform_multi_augment = transforms.RandomOrder([transforms.RandomRotation(5), transforms.RandomHorizontalFlip(), transforms.RandomPerspective()])
+    transform_multi_augment = transforms.RandomChoice([transforms.RandomRotation(5), transforms.RandomHorizontalFlip(), transforms.RandomPerspective(), transforms.ColorJitter()])
 
-    # transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.3]), transform_format])
+    transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.35]), transform_format])
 
     # Dataset preparation
-    # dataset = datasets.ImageFolder('Datasets', transform = transform_format)
 
     batch = 64
 
-    train_dataset = datasets.ImageFolder('Datasets\Train', transform_format)
+    train_dataset = datasets.ImageFolder('Datasets\Train', transform_train_format)
     print("Train dataset processed. Classes = {}".format(train_dataset.classes))
 
     validate_dataset = datasets.ImageFolder('Datasets\Validate', transform_format)
@@ -51,9 +48,9 @@ if __name__ == "__main__":
     test_dataset = datasets.ImageFolder('Datasets\Test', transform_format)
     print("Test dataset processed. Classes = {}".format(test_dataset.classes))
 
-    train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True, num_workers=2)
-    validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False, num_workers=2)
-    test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False, num_workers=2)
+    train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True, num_workers=4)
+    validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False, num_workers=4)
+    test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False, num_workers=4)
 
     # Early stopping
     class EarlyStopping:
@@ -102,10 +99,15 @@ if __name__ == "__main__":
     model = models.vgg19(pretrained = True)
     print(model.classifier)
 
-    model.classifier[6] = torch.nn.Linear(in_features=4096, out_features=2)
+    for i in range(2):
+        for params in model.classifier[i].parameters():
+            params.requires_grad = False
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=0.001)
+
+    model.classifier[6] = torch.nn.Linear(in_features=4096, out_features=1)
+
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.0001)
 
     epoch_amt = 100
 
@@ -121,10 +123,10 @@ if __name__ == "__main__":
     train_acc_list = []
     valid_acc_list = []
 
-    train_batch_acc = []
-    train_batch_loss = []
-    valid_batch_acc = []
-    valid_batch_loss = []
+    # train_batch_acc = []
+    # train_batch_loss = []
+    # valid_batch_acc = []
+    # valid_batch_loss = []
 
     # Training and validation loop
     for epoch in range(epoch_amt):
@@ -141,6 +143,8 @@ if __name__ == "__main__":
 
             # Forward pass
             output = model(images)
+            labels = labels.float()
+            labels = labels.unsqueeze(1)
             loss = criterion(output, labels)
 
             # Backward propagation and optimization
@@ -148,14 +152,16 @@ if __name__ == "__main__":
             optimizer.step()
 
             # Loss and accuracy
-            _, result = torch.max(output, dim=1)
+            # _, result = torch.max(output, dim=1)
+            result = output > 0.5
             train_correct += (result == labels).float().sum()
             train_loss += loss.item()
-            train_batch_loss.append(loss.item())
-            train_batch_acc.append((result == labels).float().sum())
+            # train_batch_loss.append(loss.item())
+            # train_batch_acc.append((result == labels).float().sum())
             print(f"Image {i} processed.")
 
         train_accuracy = 100 * train_correct / len(train_dataset)
+        # train_accuracy = train_correct / labels.size(0)
         train_loss_avg = train_loss/len(train_data_load)
 
         print(f"Training - Epoch {epoch}, Accuracy: {train_accuracy:.5f},  Loss: {train_loss_avg:.5f}")
@@ -175,19 +181,23 @@ if __name__ == "__main__":
                 images, labels = images.to(device), labels.to(device)
 
                 output = model(images)
+                labels = labels.float()
+                labels = labels.unsqueeze(1)
                 loss = criterion(output, labels)
 
                 # Calculate loss and accuracy
-                _, validate_result = torch.max(output, dim=1)
+                # _, validate_result = torch.max(output, dim=1)
+                validate_result = output > 0.5
                 valid_correct += (validate_result == labels).float().sum()
 
                 valid_loss += loss.item()
 
-                valid_batch_loss.append(loss.item())
-                valid_batch_acc.append((validate_result == labels).float().sum())
+                # valid_batch_loss.append(loss.item())
+                # valid_batch_acc.append((validate_result == labels).float().sum())
 
         valid_loss_avg = valid_loss/len(validate_data_load)
         valid_accuracy = 100 * valid_correct / len(validate_dataset)
+        # valid_accuracy = valid_correct / labels.size(0)
         print(f"Validation - Epoch {epoch}, Accuracy: {valid_accuracy:.5f},  Loss: {valid_loss_avg:.5f}")
 
         valid_acc_list.append(valid_accuracy)
@@ -211,12 +221,16 @@ if __name__ == "__main__":
         for i, (images, labels) in enumerate(test_data_load):
             images, labels = images.to(device), labels.to(device)
             prediction = model(images)
+            labels = labels.float()
+            labels = labels.unsqueeze(1)
             test_loss += criterion(prediction, labels).item()
 
-            test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
+            # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
+            test_correct += ((prediction > 0.5) == labels).type(torch.float).sum().item()
 
     test_loss /= batch
     test_accuracy = 100 * test_correct / len(test_dataset)
+    # test_accuracy = test_correct / labels.size(0)
 
     print("Test - Accuracy: {},  Loss: {}".format(test_accuracy, test_loss))
 
@@ -226,10 +240,10 @@ if __name__ == "__main__":
     valid_acc_list = torch.tensor(valid_acc_list, device='cuda').cpu().numpy()
     valid_loss_list = torch.tensor(valid_loss_list, device='cuda').cpu().numpy()
 
-    train_batch_loss= torch.tensor(train_batch_loss, device='cuda').cpu().numpy()
-    train_batch_acc = torch.tensor(train_batch_acc, device='cuda').cpu().numpy()
-    valid_batch_loss= torch.tensor(valid_batch_loss, device='cuda').cpu().numpy()
-    valid_batch_acc = torch.tensor(valid_batch_acc, device='cuda').cpu().numpy()
+    # train_batch_loss= torch.tensor(train_batch_loss, device='cuda').cpu().numpy()
+    # train_batch_acc = torch.tensor(train_batch_acc, device='cuda').cpu().numpy()
+    # valid_batch_loss= torch.tensor(valid_batch_loss, device='cuda').cpu().numpy()
+    # valid_batch_acc = torch.tensor(valid_batch_acc, device='cuda').cpu().numpy()
 
     plt.plot(train_acc_list, label = "Train accuracy")
     plt.plot(valid_acc_list, label = "Validation accuracy")
