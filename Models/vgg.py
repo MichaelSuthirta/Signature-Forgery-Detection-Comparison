@@ -1,13 +1,12 @@
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader, TensorDataset
-import torch.version
 import torchvision
 import torchvision.transforms as transforms
 from torchvision.transforms.functional import pad
 from torchvision import datasets, models
 from torchvision.io import read_image
-from sklearn.model_selection import train_test_split
+from torch.optim import lr_scheduler
 import os
 from pathlib import Path
 import numpy as np
@@ -107,7 +106,7 @@ if __name__ == "__main__":
     model.classifier[6] = torch.nn.Linear(in_features=4096, out_features=1)
 
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.0001)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.0001, weight_decay= 1e-5)
 
     epoch_amt = 100
 
@@ -147,6 +146,10 @@ if __name__ == "__main__":
             labels = labels.unsqueeze(1)
             loss = criterion(output, labels)
 
+            # Normalization with L2 normalization
+            l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
+            loss += 0.01 * l2_normalize
+
             # Backward propagation and optimization
             loss.backward()
             optimizer.step()
@@ -155,14 +158,14 @@ if __name__ == "__main__":
             # _, result = torch.max(output, dim=1)
             result = output > 0.5
             train_correct += (result == labels).float().sum()
-            train_loss += loss.item()
+            train_loss += loss.item() * images.size(0)
             # train_batch_loss.append(loss.item())
             # train_batch_acc.append((result == labels).float().sum())
             print(f"Image {i} processed.")
 
         train_accuracy = 100 * train_correct / len(train_dataset)
         # train_accuracy = train_correct / labels.size(0)
-        train_loss_avg = train_loss/len(train_data_load)
+        train_loss_avg = train_loss/len(train_data_load.dataset)
 
         print(f"Training - Epoch {epoch}, Accuracy: {train_accuracy:.5f},  Loss: {train_loss_avg:.5f}")
 
