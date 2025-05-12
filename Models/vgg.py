@@ -1,3 +1,5 @@
+import cv2
+import pickle
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader, TensorDataset
@@ -12,6 +14,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, precision_recall_curve
+import seaborn as sb
 
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -24,27 +29,40 @@ class square_padding:
 
         width_pad = (max - width) // 2
         padding = (width_pad, height_pad, width_pad, height_pad)
-        return pad(image, padding)
+        return pad(image, padding)        
     
 if __name__ == "__main__":
 
     # Transform the images to be used
-    transform_format = transforms.Compose([square_padding(), transforms.Resize((224,224)), transforms.Grayscale(3), transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
-    transform_multi_augment = transforms.RandomChoice([transforms.RandomRotation(5), transforms.RandomHorizontalFlip(), transforms.RandomPerspective(), transforms.ColorJitter()])
+    transform_format = transforms.Compose([square_padding(), transforms.Resize((224,224)), transforms.Grayscale(3), 
+                                           transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
+    transform_multi_augment = transforms.RandomApply([transforms.RandomRotation(7), transforms.RandomHorizontalFlip(), 
+                                                      transforms.RandomPerspective(distortion_scale=np.random.uniform(0.3, 0.7)), 
+                                                      transforms.ColorJitter(brightness=np.random.uniform(0.3, 0.7), contrast=np.random.uniform(0.3, 0.7))])
 
-    transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.35]), transform_format])
+    transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.45]), transform_format])
 
     # Dataset preparation
 
     batch = 64
 
     train_dataset = datasets.ImageFolder('Datasets\Train', transform_train_format)
+    y_train = train_dataset.classes
     print("Train dataset processed. Classes = {}".format(train_dataset.classes))
 
+    # Imgs[0]: Image paths
+    # Imgs[1]: Class index
+
+    # image = plt.imread(train_dataset.imgs[0][0])
+    # plot = plt.imshow(image)
+    # plt.show()
+
     validate_dataset = datasets.ImageFolder('Datasets\Validate', transform_format)
+    y_valid = validate_dataset.classes
     print("Validation dataset processed. Classes = {}".format(validate_dataset.classes))
 
     test_dataset = datasets.ImageFolder('Datasets\Test', transform_format)
+    y_test = test_dataset.classes
     print("Test dataset processed. Classes = {}".format(test_dataset.classes))
 
     train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True, num_workers=4)
@@ -95,18 +113,18 @@ if __name__ == "__main__":
             best_record = torch.load(self.best_model_path)
             model.load_state_dict(best_record['state_dict'])
 
-    model = models.vgg19(pretrained = True)
-    print(model.classifier)
+    model = models.vgg19_bn(pretrained = True)
+    print(model.features)
 
-    for i in range(2):
-        for params in model.classifier[i].parameters():
+    for i in range(3):
+        for params in model.features[i].parameters():
             params.requires_grad = False
-
 
     model.classifier[6] = torch.nn.Linear(in_features=4096, out_features=1)
 
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.0001, weight_decay= 1e-5)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.0001, weight_decay= 0.001)
+    scheduler = lr_scheduler.StepLR(optimizer=optimizer, step_size=1, gamma=0.1)
 
     epoch_amt = 100
 
@@ -143,8 +161,8 @@ if __name__ == "__main__":
             # Forward pass
             output = model(images)
             labels = labels.float()
-            labels = labels.unsqueeze(1)
-            loss = criterion(output, labels)
+            # labels = labels.unsqueeze(1)
+            loss = criterion(output.squeeze(), labels)
 
             # Normalization with L2 normalization
             l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
@@ -158,10 +176,11 @@ if __name__ == "__main__":
             # _, result = torch.max(output, dim=1)
             result = output > 0.5
             train_correct += (result == labels).float().sum()
-            train_loss += loss.item() * images.size(0)
+            train_loss += loss.item()
             # train_batch_loss.append(loss.item())
             # train_batch_acc.append((result == labels).float().sum())
             print(f"Image {i} processed.")
+        
 
         train_accuracy = 100 * train_correct / len(train_dataset)
         # train_accuracy = train_correct / labels.size(0)
@@ -185,15 +204,15 @@ if __name__ == "__main__":
 
                 output = model(images)
                 labels = labels.float()
-                labels = labels.unsqueeze(1)
-                loss = criterion(output, labels)
+                # labels = labels.unsqueeze(1)
+                loss = criterion(output.squeeze(), labels)
 
                 # Calculate loss and accuracy
                 # _, validate_result = torch.max(output, dim=1)
                 validate_result = output > 0.5
                 valid_correct += (validate_result == labels).float().sum()
 
-                valid_loss += loss.item()
+                valid_loss += loss.item() * images.size(0)
 
                 # valid_batch_loss.append(loss.item())
                 # valid_batch_acc.append((validate_result == labels).float().sum())
@@ -201,6 +220,9 @@ if __name__ == "__main__":
         valid_loss_avg = valid_loss/len(validate_data_load)
         valid_accuracy = 100 * valid_correct / len(validate_dataset)
         # valid_accuracy = valid_correct / labels.size(0)
+
+        scheduler.step()
+
         print(f"Validation - Epoch {epoch}, Accuracy: {valid_accuracy:.5f},  Loss: {valid_loss_avg:.5f}")
 
         valid_acc_list.append(valid_accuracy)
@@ -220,22 +242,31 @@ if __name__ == "__main__":
     test_loss = 0.0
     test_correct = 0
 
+    true_labels = []
+    pred_labels = []
+
     with torch.no_grad():
         for i, (images, labels) in enumerate(test_data_load):
             images, labels = images.to(device), labels.to(device)
+            true_labels.append(labels)
             prediction = model(images)
             labels = labels.float()
-            labels = labels.unsqueeze(1)
-            test_loss += criterion(prediction, labels).item()
+            # labels = labels.unsqueeze(1)
+            test_loss += criterion(prediction.squeeze(), labels).item()
 
             # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
-            test_correct += ((prediction > 0.5) == labels).type(torch.float).sum().item()
+            test_result = prediction > 0.5
+            pred_labels.append(test_result)
+            test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
     test_loss /= batch
-    test_accuracy = 100 * test_correct / len(test_dataset)
+    test_accuracy = metrics.accuracy_score(true_labels, pred_labels)
+    test_precision = metrics.precision_score(true_labels, pred_labels, labels=[0,1])
+    test_recall = metrics.recall_score(true_labels, pred_labels, labels=[0,1])
+    test_f1 = metrics.f1_score(true_labels, pred_labels, labels=[0,1])
     # test_accuracy = test_correct / labels.size(0)
 
-    print("Test - Accuracy: {},  Loss: {}".format(test_accuracy, test_loss))
+    print("Test - Accuracy: {},  Loss: {}, Precision: {}, Recall: {}, F1-Score: {}".format(test_accuracy, test_loss, test_precision, test_recall, test_f1))
 
     # Make train/validation graph
     train_acc_list = torch.tensor(train_acc_list, device='cuda').cpu().numpy()
@@ -268,4 +299,16 @@ if __name__ == "__main__":
     # plt.legend()
     # plt.show()
 
-    # Save model
+    # Accuracy metrics
+    true_label_np = np.array(true_labels)
+    pred_label_np = np.array(pred_labels)
+
+    matrix = confusion_matrix(true_label_np, pred_labels, labels=[0,1])
+    sb.heatmap(matrix, annot=True, xticklabels=["Real", "Fake"], yticklabels=["Real", "Fake"])
+    plt.ylabel("Actual")
+    plt.xlabel("Prediction")
+    plt.title("Confusion Matrix", pad=15)
+    plt.gca().xaxis.set_label_position('top')
+    plt.gca().xaxis.tick_top()
+    plt.gca().figure.text(0.5, 0.05, 'Prediction', ha='center')
+    plt.show()
