@@ -165,8 +165,8 @@ if __name__ == "__main__":
             loss = criterion(output.squeeze(), labels)
 
             # Normalization with L2 normalization
-            l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
-            loss += 0.01 * l2_normalize
+            # l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
+            # loss += 0.01 * l2_normalize
 
             # Backward propagation and optimization
             loss.backward()
@@ -260,7 +260,7 @@ if __name__ == "__main__":
             test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
     test_loss /= batch
-    test_accuracy = metrics.accuracy_score(true_labels, pred_labels)
+    test_accuracy = 100 * test_correct / len(test_dataset)
     test_precision = metrics.precision_score(true_labels, pred_labels, labels=[0,1])
     test_recall = metrics.recall_score(true_labels, pred_labels, labels=[0,1])
     test_f1 = metrics.f1_score(true_labels, pred_labels, labels=[0,1])
