@@ -161,8 +161,8 @@ if __name__ == "__main__":
             # Forward pass
             output = model(images)
             labels = labels.float()
-            # labels = labels.unsqueeze(1)
-            loss = criterion(output.squeeze(), labels)
+            labels = labels.unsqueeze(1)
+            loss = criterion(output, labels)
 
             # Normalization with L2 normalization
             # l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
@@ -176,7 +176,7 @@ if __name__ == "__main__":
             # _, result = torch.max(output, dim=1)
             result = output > 0.5
             train_correct += (result == labels).float().sum()
-            train_loss += loss.item()
+            train_loss += loss.item() * images.size(0)
             # train_batch_loss.append(loss.item())
             # train_batch_acc.append((result == labels).float().sum())
             print(f"Image {i} processed.")
@@ -204,8 +204,8 @@ if __name__ == "__main__":
 
                 output = model(images)
                 labels = labels.float()
-                # labels = labels.unsqueeze(1)
-                loss = criterion(output.squeeze(), labels)
+                labels = labels.unsqueeze(1)
+                loss = criterion(output, labels)
 
                 # Calculate loss and accuracy
                 # _, validate_result = torch.max(output, dim=1)
@@ -217,7 +217,7 @@ if __name__ == "__main__":
                 # valid_batch_loss.append(loss.item())
                 # valid_batch_acc.append((validate_result == labels).float().sum())
 
-        valid_loss_avg = valid_loss/len(validate_data_load)
+        valid_loss_avg = valid_loss/len(validate_data_load.dataset)
         valid_accuracy = 100 * valid_correct / len(validate_dataset)
         # valid_accuracy = valid_correct / labels.size(0)
 
@@ -251,8 +251,8 @@ if __name__ == "__main__":
             true_labels.append(labels)
             prediction = model(images)
             labels = labels.float()
-            # labels = labels.unsqueeze(1)
-            test_loss += criterion(prediction.squeeze(), labels).item()
+            labels = labels.unsqueeze(1)
+            test_loss += criterion(prediction, labels).item()
 
             # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
             test_result = prediction > 0.5
