@@ -260,6 +260,8 @@ if __name__ == "__main__":
             test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
     test_loss /= batch
+    true_labels.to(device)
+    pred_labels.to(device)
     test_accuracy = 100 * test_correct / len(test_dataset)
     test_precision = metrics.precision_score(true_labels, pred_labels, labels=[0,1])
     test_recall = metrics.recall_score(true_labels, pred_labels, labels=[0,1])
