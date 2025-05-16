@@ -33,18 +33,23 @@ class square_padding:
     
 if __name__ == "__main__":
 
+    torch.manual_seed(12)
+    torch.cuda.manual_seed(12)
+
     # Transform the images to be used
     transform_format = transforms.Compose([square_padding(), transforms.Resize((224,224)), transforms.Grayscale(3), 
                                            transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
     transform_multi_augment = transforms.RandomApply([transforms.RandomRotation(7), transforms.RandomHorizontalFlip(), 
-                                                      transforms.RandomPerspective(distortion_scale=np.random.uniform(0.3, 0.7)), 
-                                                      transforms.ColorJitter(brightness=np.random.uniform(0.3, 0.7), contrast=np.random.uniform(0.3, 0.7))])
+                                                      transforms.RandomPerspective(distortion_scale=0.3), 
+                                                      transforms.ColorJitter(brightness=[0.3, 0.5], contrast=[0.3, 0.5])])
 
-    transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.45]), transform_format])
+    transform_train_format = transforms.Compose([transforms.RandomChoice([transforms.RandomOrder
+                                                                          ([transform_multi_augment, transform_multi_augment]), 
+                                                                          transform_multi_augment], p=[0.25, 0.25]), transform_format])
 
     # Dataset preparation
 
-    batch = 64
+    batch = 16
 
     train_dataset = datasets.ImageFolder('Datasets\Train', transform_train_format)
     y_train = train_dataset.classes
@@ -65,13 +70,13 @@ if __name__ == "__main__":
     y_test = test_dataset.classes
     print("Test dataset processed. Classes = {}".format(test_dataset.classes))
 
-    train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True, num_workers=4)
-    validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False, num_workers=4)
-    test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False, num_workers=4)
+    train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True)
+    validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False)
+    test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False)
 
     # Early stopping
     class EarlyStopping:
-        def __init__(self, patience = 5, delta = 0.001):
+        def __init__(self, patience = 7, delta = 0.001):
             self.patience = patience
             self.delta = delta
             self.best_score = None
@@ -116,19 +121,22 @@ if __name__ == "__main__":
     model = models.vgg19_bn(pretrained = True)
     print(model.features)
 
-    for i in range(3):
+    for i in range(6):
         for params in model.features[i].parameters():
             params.requires_grad = False
 
     model.classifier[6] = torch.nn.Linear(in_features=4096, out_features=1)
 
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.0001, weight_decay= 0.001)
-    scheduler = lr_scheduler.StepLR(optimizer=optimizer, step_size=1, gamma=0.1)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-5, weight_decay= 1e-5)
+    scheduler = lr_scheduler.StepLR(optimizer=optimizer, step_size=1, gamma=0.2)
 
     epoch_amt = 100
 
     model = model.to(device)
+
+    # torch.cuda.empty_cache()
+    # torch.cuda.ipc_collect()
 
     print("Training start. Device: {}".format(device))
 
@@ -161,12 +169,13 @@ if __name__ == "__main__":
             # Forward pass
             output = model(images)
             labels = labels.float()
+            # print(labels)
             labels = labels.unsqueeze(1)
             loss = criterion(output, labels)
 
             # Normalization with L2 normalization
-            # l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
-            # loss += 0.01 * l2_normalize
+            l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
+            loss += 0.02 * l2_normalize
 
             # Backward propagation and optimization
             loss.backward()
@@ -174,13 +183,15 @@ if __name__ == "__main__":
 
             # Loss and accuracy
             # _, result = torch.max(output, dim=1)
+            # output = torch.sigmoid(output)
             result = output > 0.5
+            # print(result)
             train_correct += (result == labels).float().sum()
             train_loss += loss.item() * images.size(0)
             # train_batch_loss.append(loss.item())
             # train_batch_acc.append((result == labels).float().sum())
-            print(f"Image {i} processed.")
-        
+            # if(i == 1 or i % 100 == 0):
+            print(f"Image {i} processed.")        
 
         train_accuracy = 100 * train_correct / len(train_dataset)
         # train_accuracy = train_correct / labels.size(0)
@@ -259,9 +270,9 @@ if __name__ == "__main__":
             pred_labels.append(test_result)
             test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
+    true_labels = torch.cat(true_labels).cpu().numpy()
+    pred_labels = torch.cat(pred_labels).cpu().numpy()
     test_loss /= batch
-    true_labels.to(device)
-    pred_labels.to(device)
     test_accuracy = 100 * test_correct / len(test_dataset)
     test_precision = metrics.precision_score(true_labels, pred_labels, labels=[0,1])
     test_recall = metrics.recall_score(true_labels, pred_labels, labels=[0,1])
@@ -302,10 +313,8 @@ if __name__ == "__main__":
     # plt.show()
 
     # Accuracy metrics
-    true_label_np = np.array(true_labels)
-    pred_label_np = np.array(pred_labels)
 
-    matrix = confusion_matrix(true_label_np, pred_labels, labels=[0,1])
+    matrix = confusion_matrix(true_labels, pred_labels, labels=[0,1])
     sb.heatmap(matrix, annot=True, xticklabels=["Real", "Fake"], yticklabels=["Real", "Fake"])
     plt.ylabel("Actual")
     plt.xlabel("Prediction")
