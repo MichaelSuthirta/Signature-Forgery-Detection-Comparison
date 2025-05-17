@@ -1,270 +1,181 @@
+
 import torch
-from torch import nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-import torch.version
-import torchvision
-import torchvision.transforms as transforms
-from torchvision.transforms.functional import pad
-from torchvision import datasets
-from torchvision.io import read_image
-from sklearn.model_selection import train_test_split
-import os
-import numpy as np
-import pandas as pd
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
+import os
+import random
+import copy
+from collections import Counter
 
 # Device setup
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Training start. Device: {device}')
 
-# Create function to pad image (for image size)
-class square_padding:
-    def __call__(self, image):
-        width, height = image.size
-        max = np.max([width, height])
+# Data transforms
+transform_train = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5], [0.5])
+])
 
-        height_pad = (max - height) // 2
+transform_val_test = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5], [0.5])
+])
 
-        width_pad = (max - width) // 2
+# Dataset loading
+train_dataset = datasets.ImageFolder('Datasets/Train', transform=transform_train)
+val_dataset = datasets.ImageFolder('Datasets/Validation', transform=transform_val_test)
+test_dataset = datasets.ImageFolder('Datasets/Test', transform=transform_val_test)
 
-        padding = (width_pad, height_pad, width_pad, height_pad)
-        return pad(image, padding)
+print(f'Train dataset processed. Classes = {train_dataset.classes}')
+print(f'Validation dataset processed. Classes = {val_dataset.classes}')
+print(f'Test dataset processed. Classes = {test_dataset.classes}')
 
-# Transform the images to be used
-transform_format = transforms.Compose([square_padding(), transforms.Resize((144,144)), transforms.Grayscale(1), transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
-# transform_augment = transforms.RandomChoice([transforms.RandomRotation((5)), transforms.RandomHorizontalFlip()])
-transform_multi_augment = transforms.RandomOrder([transforms.RandomRotation(5), transforms.RandomHorizontalFlip(), transforms.RandomPerspective(), transforms.ColorJitter()])
+print("Train class distribution:", Counter([label for _, label in train_dataset]))
+print("Validation class distribution:", Counter([label for _, label in val_dataset]))
+print("Test class distribution:", Counter([label for _, label in test_dataset]))
 
-transform_train_format = transforms.Compose([transforms.RandomChoice([transform_multi_augment], p=[0.3]), transform_format])
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-# Dataset preparation
-# dataset = datasets.ImageFolder('Datasets', transform = transform_format)
+# Define flexible CNN class
+def build_cnn(num_filters1=32, num_filters2=64, dropout_rate=0.5):
+    class CustomCNN(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.features = nn.Sequential(
+                nn.Conv2d(3, num_filters1, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.Conv2d(num_filters1, num_filters2, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(2)
+            )
+            self.dropout = nn.Dropout(dropout_rate)
+            self.classifier = nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(num_filters2 * 56 * 56, 128),
+                nn.ReLU(),
+                self.dropout,
+                nn.Linear(128, 2)
+            )
 
-batch = 64
+        def forward(self, x):
+            x = self.features(x)
+            x = self.classifier(x)
+            return x
 
-train_dataset = datasets.ImageFolder('Datasets\Train', transform_train_format)
-print("Train dataset processed. Classes = {}".format(train_dataset.classes))
+    return CustomCNN()
 
-validate_dataset = datasets.ImageFolder('Datasets\Validate', transform_format)
-print("Validation dataset processed. Classes = {}".format(validate_dataset.classes))
+# Train and evaluate function
+def train_and_eval(model):
+    model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    criterion = nn.CrossEntropyLoss()
+    best_val_acc = 0
 
-test_dataset = datasets.ImageFolder('Datasets\Test', transform_format)
-print("Test dataset processed. Classes = {}".format(test_dataset.classes))
+    for epoch in range(10):  # Fewer epochs for GA
+        model.train()
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True)
-validate_data_load = DataLoader(validate_dataset, batch_size=batch, shuffle=False)
-test_data_load = DataLoader(test_dataset, batch_size=batch, shuffle=False)
+        # Validation accuracy
+        model.eval()
+        correct = 0
+        with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                correct += torch.sum(preds == labels)
+        acc = correct.item() / len(val_loader.dataset)
+        if acc > best_val_acc:
+            best_val_acc = acc
+    return best_val_acc, copy.deepcopy(model)
 
-# data_names = []
+# Genetic algorithm setup
+POP_SIZE = 6
+GENERATIONS = 3
+TOP_K = 3
 
-# # List image file names
-# for i in range(len(dataset)):
-#     data_names.append(os.path.basename(dataset.imgs[i][0])) # [0] means the file path, basename takes file name
+# Generate initial population
+population = []
+for _ in range(POP_SIZE):
+    filters1 = random.choice([16, 32, 64])
+    filters2 = random.choice([32, 64, 128])
+    dropout = random.uniform(0.3, 0.6)
+    population.append((filters1, filters2, dropout))
 
-# print(dataset.classes)
+# GA loop
+top_models = []
+for gen in range(GENERATIONS):
+    print(f"\nGeneration {gen+1}")
+    results = []
+    for config in population:
+        model = build_cnn(*config)
+        acc, trained_model = train_and_eval(model)
+        results.append((acc, config, trained_model))
+        print(f"Config {config} => Val Acc: {acc:.4f}")
 
-# Creating the CNN class
-class cnn(nn.Module):
-    def __init__(self):
-        super(cnn, self).__init__()
-        self.conv_layer_1 = nn.Conv2d(1,8,3)
-        self.conv_layer_2 = nn.Conv2d(8,32,3)
-        self.conv_layer_3 = nn.Conv2d(32,64,3)
-        self.conv_layer_4 = nn.Conv2d(64,128,3)
-        self.pool = nn.MaxPool2d(2,2)
-        self.fc_1 = nn.Linear(128*7*7,256)
-        self.fc_2 = nn.Linear(256,64)
-        self.fc_3 = nn.Linear(64,16)
-        self.fc_4 = nn.Linear(16,2)
-        self.dropout_1 = nn.Dropout(0.2)
-        self.dropout_2 = nn.Dropout(0.35)
-    
-    def forward(self, data):
-        data = self.pool(nn.functional.relu(self.conv_layer_1(data)))
-        data = self.pool(nn.functional.relu(self.conv_layer_2(data)))
-        data = self.pool(nn.functional.relu(self.conv_layer_3(data)))
-        data = self.pool(nn.functional.relu(self.conv_layer_4(data)))
-        data = torch.flatten(data, 1)
-        data = nn.functional.relu(self.fc_1(data))
-        data = self.dropout_1(data)
-        data = nn.functional.relu(self.fc_2(data))
-        data = self.dropout_2(data)
-        data = nn.functional.relu(self.fc_3(data))
-        data = self.dropout_2(data)
-        data = self.fc_4(data)
-        return data
+    # Select top performers
+    results.sort(key=lambda x: x[0], reverse=True)
+    top_models = results[:TOP_K]
 
-# Early stopping
-class EarlyStopping:
-    def __init__(self, patience = 5, delta = 0.001):
-        self.patience = patience
-        self.delta = delta
-        self.best_score = None
-        self.early_stop = False
-        self.counter = 0
-        self.best_model_state = None
-    
-    def __call__(self, val_loss, model):
-        score = -val_loss
-        if self.best_score == None:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
-            self.counter = 0
+    # Crossover and mutation
+    new_population = []
+    while len(new_population) < POP_SIZE:
+        parent1 = random.choice(top_models)[1]
+        parent2 = random.choice(top_models)[1]
+        child = (
+            random.choice([parent1[0], parent2[0]]),
+            random.choice([parent1[1], parent2[1]]),
+            min(0.7, max(0.3, (parent1[2] + parent2[2]) / 2 + random.uniform(-0.05, 0.05)))
+        )
+        new_population.append(child)
+    population = new_population
 
-    def load_best_model(self, model):
-        model.load_state_dict(self.best_model_state)
-
-epoch_amt = 100
-learning_rate = 0.001
-
-# Model
-model = cnn().to(device)
-
-# Loss function and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.001)
-
-print("Training start. Device: {}".format(device))
-
-early_stopping = EarlyStopping()
-
-# Train and validation loss and accuracy arrays
-train_loss_list = []
-valid_loss_list = []
-train_acc_list = []
-valid_acc_list = []
-
-train_batch_acc = []
-train_batch_loss = []
-valid_batch_acc = []
-valid_batch_loss = []
-
-# Training and validation loop
-for epoch in range(epoch_amt):
-    #Training
-    train_loss = 0.0
-    train_correct = 0
-
-    model.train()
-    for i, (images, labels) in enumerate(train_data_load):
-        # Move image and label to device
-        images, labels = images.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-
-        # Forward pass
-        output = model(images)
-        loss = criterion(output, labels)
-
-        # Backward propagation and optimization
-        loss.backward()
-        optimizer.step()
-
-        # Loss and accuracy
-        _, result = torch.max(output, dim=1)
-        train_correct += (result == labels).float().sum()
-        train_loss += loss.item()
-        train_batch_loss.append(loss.item())
-        train_batch_acc.append((result == labels).float().sum())
-
-    train_accuracy = 100 * train_correct / len(train_dataset)
-    train_loss_avg = train_loss/len(train_data_load)
-
-    print(f"Training - Epoch {epoch}, Accuracy: {train_accuracy:.5f},  Loss: {train_loss_avg:.5f}")
-
-    train_acc_list.append(train_accuracy)
-    train_loss_list.append(train_loss_avg)
-
-    train_loss = 0.0
-
-    # Validation
-    valid_loss = 0.0
-    valid_correct = 0
-
+# Ensemble voting
+print("\nEvaluating ensemble on test set...")
+y_true, y_pred_ensemble = [], []
+all_preds = []
+for _, _, model in top_models:
+    model.to(device)
     model.eval()
+    preds = []
     with torch.no_grad():
-        for i, (images, labels) in enumerate(validate_data_load):
-            images, labels = images.to(device), labels.to(device)
+        for inputs, labels in test_loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs, 1)
+            preds.extend(predicted.cpu().numpy())
+    all_preds.append(preds)
 
-            output = model(images)
-            loss = criterion(output, labels)
+# Majority voting
+for i in range(len(all_preds[0])):
+    votes = [all_preds[m][i] for m in range(TOP_K)]
+    vote_result = max(set(votes), key=votes.count)
+    y_pred_ensemble.append(vote_result)
+    y_true.append(test_dataset.targets[i])
 
-            # Calculate loss and accuracy
-            _, validate_result = torch.max(output, dim=1)
-            valid_correct += (validate_result == labels).float().sum()
-
-            valid_loss += loss.item()
-
-            valid_batch_loss.append(loss.item())
-            valid_batch_acc.append((validate_result == labels).float().sum())
-
-    valid_loss_avg = valid_loss/len(validate_data_load)
-    valid_accuracy = 100 * valid_correct / len(validate_dataset)
-    print(f"Validation - Epoch {epoch}, Accuracy: {valid_accuracy:.5f},  Loss: {valid_loss_avg:.5f}")
-
-    valid_acc_list.append(valid_accuracy)
-    valid_loss_list.append(valid_loss_avg)
-
-    #Stop the training early
-    early_stopping(valid_loss, model)
-    if early_stopping.early_stop:
-        print("Training stopped.")
-        break
-
-    valid_loss = 0.0
-
-# Test loop
-model.eval()
-
-test_loss = 0.0
-test_correct = 0
-
-with torch.no_grad():
-    for i, (images, labels) in enumerate(test_data_load):
-        images, labels = images.to(device), labels.to(device)
-        prediction = model(images)
-        test_loss += criterion(prediction, labels).item()
-
-        test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
-
-test_loss /= batch
-test_accuracy = 100 * test_correct / len(test_dataset)
-
-print("Test - Accuracy: {},  Loss: {}".format(test_accuracy, test_loss))
-
-# Make train/validation graph
-train_acc_list = torch.tensor(train_acc_list, device='cuda').cpu().numpy()
-train_loss_list = torch.tensor(train_loss_list, device='cuda').cpu().numpy()
-valid_acc_list = torch.tensor(valid_acc_list, device='cuda').cpu().numpy()
-valid_loss_list = torch.tensor(valid_loss_list, device='cuda').cpu().numpy()
-
-train_batch_loss= torch.tensor(train_batch_loss, device='cuda').cpu().numpy()
-train_batch_acc = torch.tensor(train_batch_acc, device='cuda').cpu().numpy()
-valid_batch_loss= torch.tensor(valid_batch_loss, device='cuda').cpu().numpy()
-valid_batch_acc = torch.tensor(valid_batch_acc, device='cuda').cpu().numpy()
-
-plt.plot(train_acc_list, label = "Train accuracy")
-plt.plot(valid_acc_list, label = "Validation accuracy")
-plt.legend()
-plt.show()
-
-plt.plot(train_batch_acc, label = "Train accuracy within all batches")
-plt.plot(valid_batch_acc, label = "Validation accuracy within all batches")
-plt.legend()
-plt.show()
-
-plt.plot(train_loss_list, label = "Train loss")
-plt.plot(valid_loss_list, label = "Validation loss")
-plt.legend()
-plt.show()
-
-plt.plot(train_batch_loss, label = "Train loss within all batches")
-plt.plot(valid_batch_loss, label = "Validation loss within all batches")
-plt.legend()
+# Evaluation
+cm = confusion_matrix(y_true, y_pred_ensemble)
+acc = 100. * sum([1 for i in range(len(y_true)) if y_true[i] == y_pred_ensemble[i]]) / len(y_true)
+print(f"Ensemble Test Accuracy: {acc:.2f}%")
+ConfusionMatrixDisplay(cm, display_labels=train_dataset.classes).plot()
+plt.title("EGACNN Confusion Matrix on Test Data")
 plt.show()
