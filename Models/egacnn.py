@@ -33,7 +33,7 @@ transform_val_test = transforms.Compose([
 
 # Dataset loading
 train_dataset = datasets.ImageFolder('Datasets/Train', transform=transform_train)
-val_dataset = datasets.ImageFolder('Datasets/Validation', transform=transform_val_test)
+val_dataset = datasets.ImageFolder('Datasets/Validate', transform=transform_val_test)
 test_dataset = datasets.ImageFolder('Datasets/Test', transform=transform_val_test)
 
 print(f'Train dataset processed. Classes = {train_dataset.classes}')
@@ -84,7 +84,7 @@ def train_and_eval(model):
     criterion = nn.CrossEntropyLoss()
     best_val_acc = 0
 
-    for epoch in range(10):  # Fewer epochs for GA
+    for epoch in range(20):
         model.train()
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
@@ -109,8 +109,8 @@ def train_and_eval(model):
     return best_val_acc, copy.deepcopy(model)
 
 # Genetic algorithm setup
-POP_SIZE = 6
-GENERATIONS = 3
+POP_SIZE = 8
+GENERATIONS = 4
 TOP_K = 3
 
 # Generate initial population
