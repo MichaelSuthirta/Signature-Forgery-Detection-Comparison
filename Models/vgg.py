@@ -41,18 +41,18 @@ if __name__ == "__main__":
                                            transforms.ToTensor(), transforms.Normalize(0.5,0.5)])
     transform_multi_augment = transforms.RandomApply([transforms.RandomRotation(7), transforms.RandomHorizontalFlip(), 
                                                       transforms.RandomPerspective(distortion_scale=0.3), 
-                                                      transforms.ColorJitter(brightness=[0.3, 0.5], contrast=[0.3, 0.5])])
+                                                      transforms.ColorJitter(brightness=0.3, contrast=0.3)])
 
     transform_train_format = transforms.Compose([transforms.RandomChoice([transforms.RandomOrder
                                                                           ([transform_multi_augment, transform_multi_augment]), 
-                                                                          transform_multi_augment], p=[0.25, 0.25]), transform_format])
+                                                                          transform_multi_augment], p=[0.35, 0.35]), transform_format])
 
     # Dataset preparation
 
-    batch = 16
+    batch = 32
 
-    train_dataset = datasets.ImageFolder('Datasets\Train', transform_train_format)
-    y_train = train_dataset.classes
+    train_dataset = datasets.ImageFolder('New_Dataset\Train', transform_format)
+    # y_train = train_dataset.classes
     print("Train dataset processed. Classes = {}".format(train_dataset.classes))
 
     # Imgs[0]: Image paths
@@ -62,12 +62,12 @@ if __name__ == "__main__":
     # plot = plt.imshow(image)
     # plt.show()
 
-    validate_dataset = datasets.ImageFolder('Datasets\Validate', transform_format)
-    y_valid = validate_dataset.classes
+    validate_dataset = datasets.ImageFolder('New_Dataset\Validate', transform_format)
+    # y_valid = validate_dataset.classes
     print("Validation dataset processed. Classes = {}".format(validate_dataset.classes))
 
-    test_dataset = datasets.ImageFolder('Datasets\Test', transform_format)
-    y_test = test_dataset.classes
+    test_dataset = datasets.ImageFolder('New_Dataset\Test', transform_format)
+    # y_test = test_dataset.classes
     print("Test dataset processed. Classes = {}".format(test_dataset.classes))
 
     train_data_load = DataLoader(train_dataset, batch_size=batch, shuffle=True)
@@ -76,7 +76,7 @@ if __name__ == "__main__":
 
     # Early stopping
     class EarlyStopping:
-        def __init__(self, patience = 7, delta = 0.001):
+        def __init__(self, patience = 5, delta = 0.001):
             self.patience = patience
             self.delta = delta
             self.best_score = None
@@ -135,8 +135,8 @@ if __name__ == "__main__":
 
     model = model.to(device)
 
-    # torch.cuda.empty_cache()
-    # torch.cuda.ipc_collect()
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
 
     print("Training start. Device: {}".format(device))
 
@@ -174,8 +174,8 @@ if __name__ == "__main__":
             loss = criterion(output, labels)
 
             # Normalization with L2 normalization
-            l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
-            loss += 0.02 * l2_normalize
+            # l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
+            # loss += 0.02 * l2_normalize
 
             # Backward propagation and optimization
             loss.backward()
@@ -184,14 +184,14 @@ if __name__ == "__main__":
             # Loss and accuracy
             # _, result = torch.max(output, dim=1)
             # output = torch.sigmoid(output)
-            result = output > 0.5
+            result = output > 0.75
             # print(result)
             train_correct += (result == labels).float().sum()
             train_loss += loss.item() * images.size(0)
             # train_batch_loss.append(loss.item())
             # train_batch_acc.append((result == labels).float().sum())
-            # if(i == 1 or i % 100 == 0):
-            print(f"Image {i} processed.")        
+            if(i == 1 or i % 50 == 0):
+                print(f"Image {i} processed.")        
 
         train_accuracy = 100 * train_correct / len(train_dataset)
         # train_accuracy = train_correct / labels.size(0)
@@ -220,7 +220,7 @@ if __name__ == "__main__":
 
                 # Calculate loss and accuracy
                 # _, validate_result = torch.max(output, dim=1)
-                validate_result = output > 0.5
+                validate_result = output > 0.75
                 valid_correct += (validate_result == labels).float().sum()
 
                 valid_loss += loss.item() * images.size(0)
@@ -266,7 +266,7 @@ if __name__ == "__main__":
             test_loss += criterion(prediction, labels).item()
 
             # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
-            test_result = prediction > 0.5
+            test_result = prediction > 0.75
             pred_labels.append(test_result)
             test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
