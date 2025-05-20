@@ -31,9 +31,9 @@ transform_val_test = transforms.Compose([
 ])
 
 # Dataset loading
-train_dataset = datasets.ImageFolder('/kaggle/input/signaturedataset-2/New_Dataset/Train', transform=transform_train)
-val_dataset = datasets.ImageFolder('/kaggle/input/signaturedataset-2/New_Dataset/Validate', transform=transform_val_test)
-test_dataset = datasets.ImageFolder('/kaggle/input/signaturedataset-2/New_Dataset/Test', transform=transform_val_test)
+train_dataset = datasets.ImageFolder('New_Dataset/Train', transform=transform_train)
+val_dataset = datasets.ImageFolder('New_Dataset/Validate', transform=transform_val_test)
+test_dataset = datasets.ImageFolder('New_Dataset/Test', transform=transform_val_test)
 
 print(f'Train dataset processed. Classes = {train_dataset.classes}')
 print(f'Validation dataset processed. Classes = {val_dataset.classes}')
