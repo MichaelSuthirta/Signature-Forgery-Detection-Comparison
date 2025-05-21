@@ -22,48 +22,53 @@ import seaborn as sb
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class EarlyStopping:
-        def __init__(self, patience = 6, delta = 0.001):
-            self.patience = patience
-            self.delta = delta
-            self.best_score = None
-            self.early_stop = False
-            self.counter = 0
-            self.best_model_state = None
-            self.best_model_path = Path('Models\Saved Models\CNN-AE') / 'best_cnn_ae.pth'
-        
-        def __call__(self, val_loss, model):
-            score = -val_loss
-            if self.best_score == None:
-                self.best_score = score
-                self.best_model_state = model.state_dict()
-                self.save_model(model, self.best_model_path, val_loss)
-            elif score < self.best_score + self.delta:
-                self.counter += 1
-                if self.counter >= self.patience:
-                    self.early_stop = True
-            else:
-                self.best_score = score
-                self.best_model_state = model.state_dict()
-                self.save_model(model, self.best_model_path, val_loss)
-                self.counter = 0
+save_model_path = Path('Models\Saved Models\CNN-AE') / 'best_cnn_ae.pth'
 
-        def save_model(self, model, modelPath, currentLoss):
-            if(os.path.exists(modelPath) == False):
-                torch.save({'state_dict': model.state_dict(), 'loss': currentLoss}, modelPath)
-            else:
-                saved_model = torch.load(modelPath, map_location=device, weights_only=True)
-                if(currentLoss < saved_model['loss']):
-                    torch.save({'state_dict': model.state_dict(), 'loss': currentLoss}, modelPath)
-                else:
-                    return
-
-        def load_current_best_model(self, model):
-            model.load_state_dict(self.best_model_state)
+# class EarlyStopping:
+#         def __init__(self, patience = 6, delta = 0.001):
+#             self.patience = patience
+#             self.delta = delta
+#             self.best_score = None
+#             self.early_stop = False
+#             self.counter = 0
+#             self.best_model_state = None
+#             self.best_model_path = Path('Models\Saved Models\CNN-AE') / 'best_cnn_ae.pth'
         
-        def load_overall_best_model(self, model):
-            best_record = torch.load(self.best_model_path)
-            model.load_state_dict(best_record['state_dict'])
+#         def __call__(self, val_loss, model):
+#             score = -val_loss
+#             if self.best_score == None:
+#                 self.best_score = score
+#                 self.best_model_state = model.state_dict()
+#                 self.save_model(model, self.best_model_path, val_loss)
+#             elif score < self.best_score + self.delta:
+#                 self.counter += 1
+#                 if self.counter >= self.patience:
+#                     self.early_stop = True
+#             else:
+#                 self.best_score = score
+#                 self.best_model_state = model.state_dict()
+#                 self.save_model(model, self.best_model_path, val_loss)
+#                 self.counter = 0
+
+#         def save_model(self, model, modelPath, currentLoss):
+#             if(os.path.exists(modelPath) == False):
+#                 torch.save({'state_dict': model.state_dict(), 'loss': currentLoss}, modelPath)
+#             else:
+#                 saved_model = torch.load(modelPath, map_location=device, weights_only=True)
+#                 if(currentLoss < saved_model['loss']):
+#                     torch.save({'state_dict': model.state_dict(), 'loss': currentLoss}, modelPath)
+#                 else:
+#                     return
+
+#         def load_current_best_model(self, model):
+#             model.load_state_dict(self.best_model_state)
+        
+#         def load_overall_best_model(self, model):
+#             best_record = torch.load(self.best_model_path)
+#             model.load_state_dict(best_record['state_dict'])
+
+def save_model(model):
+    torch.save({'state_dict': model.state_dict()}, save_model_path)
 
 class cnn_ae(nn.Module):
     def __init__(self):
@@ -117,7 +122,7 @@ test_load = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 model = cnn_ae().to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
 criterion = nn.MSELoss()
-early_stopping = EarlyStopping()
+# early_stopping = EarlyStopping()
 
 threshold = 0.5
 
@@ -145,11 +150,7 @@ for epoch in range(50):
             # print(labels)
             labels = labels.unsqueeze(1)
             loss = criterion(output, labels)
-
-            # Normalization with L2 normalization
-            # l2_normalize = sum(p.pow(2).sum() for p in model.parameters())
-            # loss += 0.02 * l2_normalize
-
+            
             # Backward propagation and optimization
             loss.backward()
             optimizer.step()
@@ -177,11 +178,13 @@ for epoch in range(50):
 
         train_loss = 0.0
 
-        #Stop the training early
-        early_stopping(train_loss, model)
-        if early_stopping.early_stop:
-            print("Training stopped.")
-            break
+        save_model(model)
+
+        # #Stop the training early
+        # early_stopping(train_loss, model)
+        # if early_stopping.early_stop:
+        #     print("Training stopped.")
+        #     break
 
         # # Validation
         # valid_loss = 0.0
