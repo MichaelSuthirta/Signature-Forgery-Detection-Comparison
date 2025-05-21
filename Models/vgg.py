@@ -184,7 +184,7 @@ if __name__ == "__main__":
             # Loss and accuracy
             # _, result = torch.max(output, dim=1)
             # output = torch.sigmoid(output)
-            result = output > 0.75
+            result = output > 0.35
             # print(result)
             train_correct += (result == labels).float().sum()
             train_loss += loss.item() * images.size(0)
@@ -220,7 +220,7 @@ if __name__ == "__main__":
 
                 # Calculate loss and accuracy
                 # _, validate_result = torch.max(output, dim=1)
-                validate_result = output > 0.75
+                validate_result = output > 0.35
                 valid_correct += (validate_result == labels).float().sum()
 
                 valid_loss += loss.item() * images.size(0)
@@ -266,7 +266,7 @@ if __name__ == "__main__":
             test_loss += criterion(prediction, labels).item()
 
             # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
-            test_result = prediction > 0.75
+            test_result = prediction > 0.35
             pred_labels.append(test_result)
             test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
