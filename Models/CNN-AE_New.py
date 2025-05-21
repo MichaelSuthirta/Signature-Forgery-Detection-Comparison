@@ -92,25 +92,27 @@ class cnn_ae(nn.Module):
         x = self.decoder(x)
         return x
 
-batch_size = 16
+batch_size = 32
 
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
     transforms.Resize((128, 128)),
     transforms.ToTensor()
 ])
-train_dataset = datasets.ImageFolder("New_Datasets_Fixed\Datasets\Train", transform=transform)
-valid_dataset = datasets.ImageFolder("New_Datasets_Fixed\Datasets\Validate", transform=transform)
-test_dataset = datasets.ImageFolder("New_Datasets_Fixed\Datasets\Test", transform=transform)
+train_dataset = datasets.ImageFolder("New_Dataset\Train", transform=transform)
+valid_dataset = datasets.ImageFolder("New_Dataset\Validate", transform=transform)
+test_dataset = datasets.ImageFolder("New_Dataset\Test", transform=transform)
 
 train_load = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 valid_load = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
 test_load = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 model = cnn_ae().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
 criterion = nn.MSELoss()
 early_stopping = EarlyStopping()
+
+threshold = 0.5
 
 # Train and validation loss and accuracy arrays
 train_loss_list = []
@@ -148,14 +150,14 @@ for epoch in range(50):
             # Loss and accuracy
             # _, result = torch.max(output, dim=1)
             # output = torch.sigmoid(output)
-            result = output > 0.5
+            result = output > threshold
             # print(result)
             train_correct += (result == labels).float().sum()
             train_loss += loss.item() * images.size(0)
             # train_batch_loss.append(loss.item())
             # train_batch_acc.append((result == labels).float().sum())
-            if(i == 1 or i % 50 == 0):
-                print(f"Image {i} processed.")        
+            # if(i == 1 or i % 50 == 0):
+            #     print(f"Image {i} processed.")        
 
         train_accuracy = 100 * train_correct / len(train_dataset)
         # train_accuracy = train_correct / labels.size(0)
@@ -184,7 +186,7 @@ for epoch in range(50):
 
                 # Calculate loss and accuracy
                 # _, validate_result = torch.max(output, dim=1)
-                validate_result = output > 0.5
+                validate_result = output > threshold
                 valid_correct += (validate_result == labels).float().sum()
 
                 valid_loss += loss.item() * images.size(0)
@@ -229,7 +231,7 @@ with torch.no_grad():
         test_loss += criterion(prediction, labels).item()
 
         # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
-        test_result = prediction > 0.5
+        test_result = prediction > threshold
         pred_labels.append(test_result)
         test_correct += ((test_result) == labels).type(torch.float).sum().item()
 
