@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 import os
@@ -31,9 +32,14 @@ transform_val_test = transforms.Compose([
 ])
 
 # Dataset loading
+
 train_dataset = datasets.ImageFolder('New_Dataset/Train', transform=transform_train)
 val_dataset = datasets.ImageFolder('New_Dataset/Validate', transform=transform_val_test)
 test_dataset = datasets.ImageFolder('New_Dataset/Test', transform=transform_val_test)
+
+# train_dataset = datasets.ImageFolder('Datasets/Train', transform=transform_train)
+# val_dataset = datasets.ImageFolder('Datasets/Validation', transform=transform_val_test)
+# test_dataset = datasets.ImageFolder('Datasets/Test', transform=transform_val_test)
 
 print(f'Train dataset processed. Classes = {train_dataset.classes}')
 print(f'Validation dataset processed. Classes = {val_dataset.classes}')
@@ -48,6 +54,7 @@ val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
 # Define CNN class
+
 def build_cnn(num_filters1=32, num_filters2=64, dropout_rate=0.5):
     class CustomCNN(nn.Module):
         def __init__(self):
@@ -84,6 +91,7 @@ def train_and_eval(model):
     best_val_acc = 0
 
     for epoch in range(20):
+
         model.train()
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
@@ -108,6 +116,7 @@ def train_and_eval(model):
     return best_val_acc, copy.deepcopy(model)
 
 # Genetic algorithm setup
+
 POP_SIZE = 7
 GENERATIONS = 8
 TOP_K = 3
@@ -119,6 +128,7 @@ population = []
 for i in range(POP_SIZE):
     filters1 = random.choice([16, 32, 64, 128])
     filters2 = random.choice([32, 64, 128, 256])
+
     dropout = random.uniform(0.3, 0.6)
     population.append((filters1, filters2, dropout))
 
@@ -176,6 +186,7 @@ for i in range(len(all_preds[0])):
 # Evaluation
 cm = confusion_matrix(y_true, y_pred_ensemble)
 acc = 100. * sum([1 for i in range(len(y_true)) if y_true[i] == y_pred_ensemble[i]]) / len(y_true)
+
 f1 = f1_score(y_true, y_pred_ensemble, labels=[0,1])
 recall = recall_score(y_true, y_pred_ensemble, labels=[0,1])
 prec = precision_score(y_true, y_pred_ensemble, labels=[0,1])
