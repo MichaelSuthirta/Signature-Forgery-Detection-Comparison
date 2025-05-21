@@ -99,9 +99,9 @@ transform = transforms.Compose([
     transforms.Resize((128, 128)),
     transforms.ToTensor()
 ])
-train_dataset = datasets.ImageFolder("New_Dataset\Train", transform=transform)
-valid_dataset = datasets.ImageFolder("New_Dataset\Validate", transform=transform)
-test_dataset = datasets.ImageFolder("New_Dataset\Test", transform=transform)
+train_dataset = datasets.ImageFolder("New_Datasets_Fixed\Datasets\Train", transform=transform)
+valid_dataset = datasets.ImageFolder("New_Datasets_Fixed\Datasets\Validate", transform=transform)
+test_dataset = datasets.ImageFolder("New_Datasets_Fixed\Datasets\Test", transform=transform)
 
 train_load = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 valid_load = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
