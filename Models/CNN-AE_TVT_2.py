@@ -80,14 +80,14 @@ class cnn_ae(nn.Module):
             nn.Conv2d(32, 64, 3),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.2),
+            nn.Dropout(0.25),
             nn.Conv2d(64, 128, 3),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.4),
             nn.MaxPool2d(2),
             nn.Conv2d(128, 256, 3),
             nn.ReLU(),
-            nn.Dropout(0.4),
+            nn.Dropout(0.5),
             nn.MaxPool2d(2),
             nn.Flatten()
         )
