@@ -78,3 +78,26 @@ def check_dataset(dataset):
 check_dataset(train_dataset)
 check_dataset(validate_dataset)
 check_dataset(test_dataset)
+
+def check_data_amt(dataset):
+
+    real = 0
+    fake = 0
+
+    print("Train data listing. Class index: {}".format(dataset.class_to_idx))
+    for i in range(len(dataset)):
+        if dataset.imgs[i][1] == 1:
+            real += 1
+        elif dataset.imgs[i][1] == 0:
+            fake += 1
+        # print(dataset.imgs[i])
+
+    return real, fake
+
+train_real, train_fake = check_data_amt(train_dataset)
+valid_real, valid_fake = check_data_amt(validate_dataset)
+test_real, test_fake = check_data_amt(test_dataset)
+
+print(f"Train real: {train_real}, train fake: {train_fake}")
+print(f"Valid real: {valid_real},  fake: {valid_fake}")
+print(f"Test real: {test_real},  fake: {test_fake}")

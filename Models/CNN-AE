@@ -1,0 +1,255 @@
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, random_split
+from PIL import Image
+import matplotlib.pyplot as plt
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0.0001):
+        self.patience = patience
+        self.delta = delta
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+        self.best_model_state = None
+
+    def __call__(self, val_loss, model):
+        if self.best_loss is None or val_loss < self.best_loss - self.delta:
+            self.best_loss = val_loss
+            self.best_model_state = model.state_dict()
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+
+    def load_best_model(self, model):
+        if self.best_model_state is not None:
+            model.load_state_dict(self.best_model_state)
+
+class CNNAutoencoder(nn.Module):
+    def __init__(self):
+        super(CNNAutoencoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 32, 3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Flatten()
+        )
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 1, 3, stride=2, padding=1, output_padding=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
+
+# --- Data Loaders ---
+def get_dataloaders(batch_size=32, val_split=0.2):
+    transform = transforms.Compose([
+        transforms.Grayscale(num_output_channels=1),
+        transforms.Resize((128, 128)),
+        transforms.ToTensor()
+    ])
+    dataset = datasets.ImageFolder(root='New_Dataset', transform=transform)
+
+    genuine_indices = [i for i, (_, label) in enumerate(dataset.samples) if dataset.classes[label] == "genuine"]
+    forgery_indices = [i for i, (_, label) in enumerate(dataset.samples) if dataset.classes[label] == "forgery"]
+
+    class IndexedSubset(torch.utils.data.Subset):
+        def __init__(self, dataset, indices, label):
+            super().__init__(dataset, indices)
+            self.fixed_label = label
+
+        def __getitem__(self, idx):
+            img, _ = super().__getitem__(idx)
+            return img, self.fixed_label
+
+    genuine_train_len = int(len(genuine_indices) * (1 - val_split))
+    genuine_train_indices = genuine_indices[:genuine_train_len]
+    genuine_val_indices = genuine_indices[genuine_train_len:]
+
+    genuine_train_set = IndexedSubset(dataset, genuine_train_indices, 0)
+    genuine_val_set = IndexedSubset(dataset, genuine_val_indices, 0)
+    forgery_set = IndexedSubset(dataset, forgery_indices, 1)
+
+    train_loader = DataLoader(genuine_train_set, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(genuine_val_set, batch_size=batch_size, shuffle=False)
+    forgery_loader = DataLoader(forgery_set, batch_size=1, shuffle=False)
+
+    return train_loader, val_loader, forgery_loader
+
+def train(model, train_loader, val_loader=None, epochs=10, device="cpu", filename="cnn_ae_best.pth"):
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.MSELoss()
+
+    train_losses, val_losses = [], []
+    early_stopping = EarlyStopping(patience=5)
+
+    # Safe save path creation
+    save_dir = "Models\Saved Models\CNN-AE"
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, filename)
+
+    print(f"Model will be saved to: {save_path}")
+
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        for inputs, _ in train_loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, inputs)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        avg_train_loss = total_loss / len(train_loader)
+        train_losses.append(avg_train_loss)
+
+        if val_loader is not None:
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for val_inputs, _ in val_loader:
+                    val_inputs = val_inputs.to(device)
+                    val_outputs = model(val_inputs)
+                    val_loss += criterion(val_outputs, val_inputs).item()
+            avg_val_loss = val_loss / len(val_loader)
+            val_losses.append(avg_val_loss)
+
+            print(f"Epoch [{epoch+1}/{epochs}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+            early_stopping(avg_val_loss, model)
+        else:
+            print(f"Epoch [{epoch+1}/{epochs}] Train Loss: {avg_train_loss:.4f}")
+            early_stopping(avg_train_loss, model)
+
+        if early_stopping.early_stop:
+            print("Early stopping triggered.")
+            break
+
+    print("Training complete.")
+    early_stopping.load_best_model(model)
+    torch.save(model.state_dict(), save_path)
+    print(f"Model saved to {save_path}")
+    return train_losses, val_losses
+
+
+
+def test_forgery_detection(model, dataloader, threshold=0.01, device='cpu'):
+    model.to(device)
+    model.eval()
+    criterion = nn.MSELoss()
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for img, label in dataloader:
+            img = img.to(device)
+            output = model(img)
+            loss = criterion(output, img).item()
+            predicted = 1 if loss > threshold else 0
+            if predicted == label.item():
+                correct += 1
+            total += 1
+            print(f"Reconstruction Error: {loss:.4f} | Predicted: {'Forgery' if predicted else 'Genuine'}")
+
+    print(f"Accuracy: {correct}/{total} ({100.0 * correct / total:.2f}%)")
+
+def validate_signatures(model, folder='Validate', threshold=0.01, device='cpu'):
+    model.to(device)
+    model.eval()
+    transform = transforms.Compose([
+        transforms.Grayscale(num_output_channels=1),
+        transforms.Resize((128, 128)),
+        transforms.ToTensor()
+    ])
+
+    print("\n--- Validating New Signatures ---")
+    for root, _, files in os.walk(folder):
+        for file in files:
+            img_path = os.path.join(root, file)
+            if not os.path.isfile(img_path) or not file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                continue
+            try:
+                img = Image.open(img_path).convert('L')
+                img = transform(img).unsqueeze(0).to(device)
+                with torch.no_grad():
+                    output = model(img)
+                    loss = F.mse_loss(output, img).item()
+                    result = 'Forgery' if loss > threshold else 'Genuine'
+                    print(f"{img_path} - Reconstruction Error: {loss:.4f} -> {result}")
+            except Exception as e:
+                print(f"Skipping {img_path} due to error: {e}")
+
+def plot_metrics(train_losses, val_losses=[], train_accuracies=[], val_accuracies=[]):
+    epochs = range(len(train_losses))
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(epochs, train_losses, label='Train loss')
+    if len(val_losses) == len(train_losses):
+        plt.plot(epochs, val_losses, label='Validation loss')
+    else:
+        print(f"Skipping validation loss plot due to mismatched lengths: train={len(train_losses)}, val={len(val_losses)}")
+    plt.title("Loss over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    if len(train_accuracies) == len(train_losses) and len(val_accuracies) == len(train_losses):
+        plt.figure(figsize=(8, 4))
+        plt.plot(epochs, train_accuracies, label='Train accuracy')
+        plt.plot(epochs, val_accuracies, label='Validation accuracy')
+        plt.title("Accuracy over Epochs")
+        plt.xlabel("Epoch")
+        plt.ylabel("Accuracy")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+    else:
+        print("Skipping accuracy plot due to mismatched lengths.")
+
+if __name__ == "__main__":
+    print("Current Working Directory:", os.getcwd())
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    batch_size = 32
+    epochs = 50
+    threshold = 0.01
+
+    train_loader, val_loader, forgery_loader = get_dataloaders(batch_size)
+    model = CNNAutoencoder()
+
+    train_losses, val_losses = train(
+    model,
+    train_loader,
+    val_loader,
+    epochs=epochs,
+    device=device,
+    filename="cnn_ae_best.pth"
+)
+    
+    print("\n--- Testing on Forgery Signatures ---")
+    test_forgery_detection(model, forgery_loader, threshold, device)
+
+    validate_signatures(model, folder='Validate', threshold=threshold, device=device)
+
+    plot_metrics(train_losses, val_losses)
