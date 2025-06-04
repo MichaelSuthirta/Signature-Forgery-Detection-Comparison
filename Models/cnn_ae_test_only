@@ -1,0 +1,128 @@
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, random_split
+from PIL import Image
+import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
+from torchvision.transforms.functional import pad
+from torchvision import datasets, models
+from torchvision.io import read_image
+from torch.optim import lr_scheduler
+import os
+from pathlib import Path
+import numpy as np
+import pandas as pd
+from sklearn import metrics
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, precision_recall_curve
+import seaborn as sb
+import time
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+class cnn_ae(nn.Module):
+    def __init__(self):
+        super(cnn_ae, self).__init__()
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 32, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, 3),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+            nn.Conv2d(64, 128, 3),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.MaxPool2d(2),
+            nn.Conv2d(128, 256, 3),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.MaxPool2d(2),
+            nn.Flatten()
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(9216, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        x = self.cnn(x)
+        # print(x.shape)
+        x = self.decoder(x)
+        return x
+
+batch_size = 32
+
+transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=1),
+    transforms.Resize((128, 128)),
+    transforms.ToTensor()
+])
+
+dataset = datasets.ImageFolder('Dataset_4_ImgOnly\\Dataset_Imgs', transform=transform)
+train_dataset, val_test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
+valid_dataset, test_dataset = train_test_split(val_test_dataset, test_size=0.5, random_state=42)
+test_load = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+model = cnn_ae().to(device)
+model.load_state_dict(torch.load("Models\\Saved Models\\CNN-AE\\best_cnn_ae.pth")['state_dict'])
+print(model)
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+criterion = nn.MSELoss()
+
+threshold = 0.5
+
+# Test loop
+model.eval()
+
+test_loss = 0.0
+test_correct = 0
+
+true_labels = []
+pred_labels = []
+
+with torch.no_grad():
+    for i, (images, labels) in enumerate(test_load):
+        images, labels = images.to(device), labels.to(device)
+        true_labels.append(labels)
+        prediction = model(images)
+        labels = labels.float()
+        labels = labels.unsqueeze(1)
+        test_loss += criterion(prediction, labels).item()
+
+        # test_correct += (prediction.argmax(1) == labels).type(torch.float).sum().item()
+        test_result = prediction > threshold
+        pred_labels.append(test_result)
+        test_correct += ((test_result) == labels).type(torch.float).sum().item()
+
+true_labels = torch.cat(true_labels).cpu().numpy()
+pred_labels = torch.cat(pred_labels).cpu().numpy()
+test_loss /= batch_size
+test_accuracy = 100 * test_correct / len(test_dataset)
+test_precision = metrics.precision_score(true_labels, pred_labels, labels=[0,1])
+test_recall = metrics.recall_score(true_labels, pred_labels, labels=[0,1])
+test_f1 = metrics.f1_score(true_labels, pred_labels, labels=[0,1])
+# test_accuracy = test_correct / labels.size(0)
+
+print("Test - Accuracy: {},  Loss: {}, Precision: {}, Recall: {}, F1-Score: {}".format(test_accuracy, test_loss, test_precision, test_recall, test_f1))
+
+matrix = confusion_matrix(true_labels, pred_labels, labels=[0,1])
+sb.heatmap(matrix, annot=True, xticklabels=["Real", "Fake"], yticklabels=["Real", "Fake"])
+plt.ylabel("Actual")
+plt.xlabel("Prediction")
+plt.title("CNN-AE Confusion Matrix", pad=15)
+plt.gca().xaxis.set_label_position('top')
+plt.gca().xaxis.tick_top()
+plt.gca().figure.text(0.5, 0.05, 'Prediction', ha='center')
+plt.show()
