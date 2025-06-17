@@ -149,7 +149,7 @@ class ContrastiveLoss(torch.nn.Module):
         loss = torch.sum(loss) / 2.0 / input1.size()[0]
         return loss
 
-def get_res(x1, x2, threshold=0.5):
+def get_res(x1, x2, threshold=0.4):
     dist = torch.nn.functional.pairwise_distance(x1, x2)
     prediction = (dist<threshold).float()
     return prediction

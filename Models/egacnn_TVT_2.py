@@ -12,13 +12,14 @@ import random
 import copy
 from collections import Counter
 import numpy as np
-from google.colab import drive
-drive.mount('/content/drive')
+import time
+
+overall_time_start = time.time()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Device in use: {device}')
 
-data_path = '/content/drive/MyDrive/EGACNN/New_Dataset_TrainTest_2/Dataset_Imgs'
+data_path = 'Dataset_4_ImgOnly\\Dataset_Imgs'
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -158,6 +159,8 @@ gen_val_accuracies = []
 gen_train_losses = []
 gen_val_losses = []
 
+train_total_time_start = time.time()
+
 for gen in range(GENERATIONS):
     print(f"\n=== Generation {gen+1} ===")
     results = []
@@ -193,6 +196,9 @@ for gen in range(GENERATIONS):
         )
         new_population.append(child)
     population = new_population
+
+train_total_time_end = time.time()
+train_total_time = train_total_time_end - train_total_time_start
 
 plt.figure(figsize=(10, 4))
 plt.subplot(1, 2, 1)
@@ -248,8 +254,11 @@ f1 = f1_score(y_true, y_pred_ensemble)
 recall = recall_score(y_true, y_pred_ensemble)
 prec = precision_score(y_true, y_pred_ensemble)
 
+overall_time_end = time.time()
+overall_time = overall_time_end - overall_time_start
+
 print(f"Ensemble Test Accuracy: {acc:.2f}%, Precision: {prec:.2f}, Recall: {recall:.2f}, F1 Score: {f1:.2f}")
-print(f"Testing Duration: {test_duration:.2f} seconds")
+print(f"Training Duration: {train_total_time:.2f} seconds, Testing Duration: {test_duration:.2f} seconds, Overall Time: {overall_time:.2f}")
 
 sb.heatmap(cm, annot=True, fmt='d', xticklabels=['Real', 'Fake'], yticklabels=['Real', 'Fake'])
 plt.xlabel('Predicted')

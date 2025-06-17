@@ -111,7 +111,7 @@ class cnn_ae(nn.Module):
         x = self.decoder(x)
         return x
 
-batch_size = 32
+batch_size = 16
 
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
