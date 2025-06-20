@@ -1,0 +1,6 @@
+train: C:\Coding\Project\RM\Yolov11\train
+val: C:\Coding\Project\RM\Yolov11\val
+
+nc: 2
+
+names: ["Fake", "Real"]
